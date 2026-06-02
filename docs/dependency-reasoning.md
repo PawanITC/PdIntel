@@ -12,7 +12,7 @@
 | `flyway-core` + `flyway-database-postgresql` | Spring Boot 3.x + Flyway 10.x requires both separate artifacts |
 | `postgresql` | JDBC driver — runtime scope only (never compile-time) |
 | `spring-kafka` | Kafka producer/consumer |
-| `stripe-java` | Official Stripe SDK |
+| `stripe-java:26.7.0` | Official Stripe SDK — latest stable on Maven Central |
 | `springdoc-openapi-starter-webmvc-ui` | OpenAPI 3.x + Swagger UI auto-generated from annotations |
 | `micrometer-registry-prometheus` | Prometheus scrape endpoint at `/actuator/prometheus` |
 | `micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp` | Distributed tracing — bridges Micrometer Observation API to OpenTelemetry |
