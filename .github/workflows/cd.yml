@@ -57,7 +57,7 @@ jobs:
           sed -i \
             "s|image: .*pd-api-euw2:[^ ]*|image: ${IMAGE_API}|g" \
             infra/eks/api.yaml
-          kubectl apply -f infra/eks/api.yaml
+          kubectl apply -f infra/eks/api-deployment.yaml
           kubectl rollout status deployment/api \
             -n ${{ env.NAMESPACE }} --timeout=180s
 
@@ -70,7 +70,7 @@ jobs:
             "s|image: .*pd-web-euw2:[^ ]*|image: ${IMAGE_WEB}|g" \
             infra/eks/web.yaml
           kubectl apply -f infra/eks/web.yaml
-          kubectl rollout status deployment/web \
+          kubectl rollout status deployment/web-deployment.yaml \
             -n ${{ env.NAMESPACE }} --timeout=180s
 
       - name: Print live endpoints
