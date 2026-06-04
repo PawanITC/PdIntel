@@ -1,0 +1,82 @@
+name: CD / Deploy to EKS
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_tag:
+        description: 'API image tag to deploy. Leave empty to skip API deploy.'
+        required: false
+      web_tag:
+        description: 'Web image tag to deploy. Leave empty to skip Web deploy.'
+        required: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION:    eu-west-2
+  ECR_REGISTRY:  768054002714.dkr.ecr.eu-west-2.amazonaws.com
+  ECR_REPOSITORY_WEB: pd-web-euw2
+  ECR_REPOSITORY_API: pd-api-euw2
+  EKS_CLUSTER:   pd-eks-euw2
+  NAMESPACE:     pdintel
+
+jobs:
+
+  deploy:
+    name: Deploy to EKS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_EKS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure kubectl for EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ env.EKS_CLUSTER }}
+
+      - name: Checkout K8s manifests (tf-aws-infra/eks/)
+        uses: actions/checkout@v4
+        with:
+          repository: nextimadmin/tf-aws-infra
+          token: ${{ secrets.GH_PAT }}
+          path: infra
+          sparse-checkout: eks
+
+      - name: Patch image tag and deploy API
+        if: inputs.api_tag != ''
+        env:
+          IMAGE_API: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_API }}:${{ inputs.api_tag }}
+        run: |
+          sed -i \
+            "s|image: .*pd-api-euw2:[^ ]*|image: ${IMAGE_API}|g" \
+            infra/eks/api.yaml
+          kubectl apply -f infra/eks/api-deployment.yaml
+          kubectl rollout status deployment/api \
+            -n ${{ env.NAMESPACE }} --timeout=180s
+
+      - name: Patch image tag and deploy Web
+        if: inputs.web_tag != ''
+        env:
+          IMAGE_WEB: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_WEB }}:${{ inputs.web_tag }}
+        run: |
+          sed -i \
+            "s|image: .*pd-web-euw2:[^ ]*|image: ${IMAGE_WEB}|g" \
+            infra/eks/web.yaml
+          kubectl apply -f infra/eks/web.yaml
+          kubectl rollout status deployment/web-deployment.yaml \
+            -n ${{ env.NAMESPACE }} --timeout=180s
+
+      - name: Print live endpoints
+        run: |
+          echo "## Deployed" >> "$GITHUB_STEP_SUMMARY"
+          kubectl get svc -n ${{ env.NAMESPACE }} \
+            -o custom-columns=\
+          "NAME:.metadata.name,TYPE:.spec.type,EXTERNAL-IP:.status.loadBalancer.ingress[0].hostname,PORT:.spec.ports[*].port" \
+            | tee -a "$GITHUB_STEP_SUMMARY"

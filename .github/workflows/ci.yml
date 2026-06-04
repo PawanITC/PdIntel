@@ -1,0 +1,173 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [development]
+    paths:
+      - 'apps/api/**'
+      - 'apps/web/**'
+      - 'packages/shared/**'
+      - 'pnpm-lock.yaml'
+      - 'docker-compose.yml'
+      - '.github/workflows/deploy-eks.yml'
+
+  push:
+    branches: [development]
+    paths:
+      - 'apps/api/**'
+      - 'apps/web/**'
+      - 'packages/shared/**'
+      - 'pnpm-lock.yaml'
+      - 'docker-compose.yml'
+      - '.github/workflows/deploy-eks.yml'
+
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION:            eu-west-2
+  ECR_REGISTRY:          768054002714.dkr.ecr.eu-west-2.amazonaws.com
+  ECR_REPOSITORY_WEB:    pd-web-euw2
+  ECR_REPOSITORY_API:    pd-api-euw2
+  COMPOSE_PROJECT_NAME:  pdintelligence
+
+jobs:
+
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.flags.outputs.api }}
+      web: ${{ steps.flags.outputs.web }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name != 'workflow_dispatch'
+        with:
+          filters: |
+            api:
+              - 'apps/api/**'
+              - 'packages/shared/**'
+              - 'pnpm-lock.yaml'
+              - 'docker-compose.yml'
+            web:
+              - 'apps/web/**'
+              - 'packages/shared/**'
+              - 'pnpm-lock.yaml'
+              - 'docker-compose.yml'
+
+      - name: Set build flags
+        id: flags
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "api=true" >> "$GITHUB_OUTPUT"
+            echo "web=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "api=${{ steps.filter.outputs.api }}" >> "$GITHUB_OUTPUT"
+            echo "web=${{ steps.filter.outputs.web }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-api:
+    name: Build API
+    needs: detect-changes
+    if: needs.detect-changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        if: github.event_name != 'pull_request'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_EKS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        if: github.event_name != 'pull_request'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Resolve image tag
+        id: meta
+        if: github.event_name != 'pull_request'
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          TAG="api-${{ github.run_number }}-${SHORT_SHA}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build API via docker compose
+        run: docker compose build api
+
+      - name: Tag and push to ECR
+        if: github.event_name != 'pull_request'
+        run: |
+          docker tag pdintelligence-api "${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_API }}:${{ steps.meta.outputs.tag }}"
+          docker push "${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_API }}:${{ steps.meta.outputs.tag }}"
+
+      - name: Summary
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            echo "### API build validated (PR — not pushed to ECR)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### API image pushed" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Tag:** \`${{ steps.meta.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  build-web:
+    name: Build Web
+    needs: detect-changes
+    if: needs.detect-changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        if: github.event_name != 'pull_request'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_EKS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        if: github.event_name != 'pull_request'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Resolve image tag
+        id: meta
+        if: github.event_name != 'pull_request'
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          TAG="web-${{ github.run_number }}-${SHORT_SHA}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      # NEXT_PUBLIC_API_URL is defined in docker-compose.yml — update it there when needed
+      - name: Build Web via docker compose
+        run: docker compose build web
+
+      - name: Tag and push to ECR
+        if: github.event_name != 'pull_request'
+        run: |
+          docker tag pdintelligence-web "${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_WEB }}:${{ steps.meta.outputs.tag }}"
+          docker push "${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_WEB }}:${{ steps.meta.outputs.tag }}"
+
+      - name: Summary
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            echo "### Web build validated (PR — not pushed to ECR)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Web image pushed" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Tag:** \`${{ steps.meta.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
