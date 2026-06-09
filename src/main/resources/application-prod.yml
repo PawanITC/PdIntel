@@ -4,6 +4,14 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
 
+auth:
+  cognito:
+    issuer-uri: ${COGNITO_ISSUER_URI}
+    # Override these only if your Cognito token uses non-standard claim names
+    # user-id-claim: sub
+    # email-claim: email
+    # council-ids-claim: custom:councilIds
+
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
 
