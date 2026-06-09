@@ -29,7 +29,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Component
-@Profile("!prod")
+@Profile("!prod & !cognito-test")
 public class MockAuthProvider implements AuthProvider {
 
     private static final UUID MOCK_USER_ID = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");

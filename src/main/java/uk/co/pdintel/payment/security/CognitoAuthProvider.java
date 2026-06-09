@@ -15,7 +15,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Component
-@Profile("prod")
+@Profile({"prod", "cognito-test"})
 public class CognitoAuthProvider implements AuthProvider {
 
     private final JwtDecoder jwtDecoder;
