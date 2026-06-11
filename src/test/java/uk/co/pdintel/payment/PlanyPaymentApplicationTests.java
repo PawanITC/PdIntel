@@ -2,17 +2,18 @@ package uk.co.pdintel.payment;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.kafka.test.context.EmbeddedKafka;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import uk.co.pdintel.payment.config.KinesisMockConfig;
 
 @SpringBootTest
 @ActiveProfiles("test")
 @Testcontainers
-@EmbeddedKafka(partitions = 1, topics = {"plany.stripe.webhook-raw.v1"})
+@Import(KinesisMockConfig.class)
 class PlanyPaymentApplicationTests {
 
     @Container

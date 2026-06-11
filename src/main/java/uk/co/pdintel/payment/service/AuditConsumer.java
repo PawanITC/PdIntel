@@ -1,26 +1,18 @@
 package uk.co.pdintel.payment.service;
 
 /**
- * Kafka consumer that writes every Stripe webhook event to the audit log.
+ * Kinesis consumer that writes every Stripe webhook event to the audit log.
  *
  * <p>Decisions:
  * <ul>
- *   <li>containerFactory="auditContainerFactory" — dedicated factory with group-id=plany-audit.
- *       Receives every message independently from AccessControlConsumer.</li>
- *   <li>Idempotency key suffix "-audit" — evt_xxx-audit is separate from evt_xxx-access-control
- *       and the raw webhook entry. Each consumer deduplicates independently.</li>
- *   <li>mapEventType() normalises Stripe event types to internal audit constants —
- *       decouples audit schema from Stripe naming. UNKNOWN for unmapped types ensures
- *       every event is logged, nothing silently discarded.</li>
- *   <li>sanitisePayload() strips PII fields before persisting — removes customer_email,
- *       email, name, phone, address from JSON. Non-negotiable: no PII in audit log.</li>
- *   <li>entityId from data.object.id — Stripe object ID (subscription, invoice etc.)
- *       is the entity reference in the audit entry.</li>
- *   <li>councilId from data.object.metadata.councilId — same extraction as webhook handler.
- *       Null-safe: falls back to null for events without council context.</li>
- *   <li>actorType=STRIPE always — all Kafka events are Stripe-triggered, no internal actor.</li>
- *   <li>@RetryableTopic with exponential backoff — consistent retry behaviour across consumers.</li>
- *   <li>@Transactional + manual ack — DB write first, offset committed after success.</li>
+ *   <li>consume(String payload) is a plain method called by KinesisConsumerService —
+ *       no Kafka annotations. Receives every record dispatched from the Kinesis shard.</li>
+ *   <li>Idempotency key suffix "-audit" — evt_xxx-audit is separate from evt_xxx-access-control.
+ *       Each consumer deduplicates independently.</li>
+ *   <li>mapEventType() normalises Stripe event types to internal audit constants.</li>
+ *   <li>sanitisePayload() strips PII fields before persisting — no PII in audit log.</li>
+ *   <li>actorType=STRIPE always — all Kinesis events are Stripe-triggered.</li>
+ *   <li>@Transactional — DB write atomic. Exception propagates to polling service for retry.</li>
  * </ul>
  *
  * @author Pawan
@@ -33,10 +25,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.annotation.RetryableTopic;
-import org.springframework.kafka.support.Acknowledgment;
-import org.springframework.retry.annotation.Backoff;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.co.pdintel.payment.domain.AuditLog;
@@ -67,16 +55,8 @@ public class AuditConsumer {
         this.objectMapper = objectMapper;
     }
 
-    @RetryableTopic(
-            attempts = "3",
-            backoff = @Backoff(delay = 1000, multiplier = 2)
-    )
-    @KafkaListener(
-            topics = "plany.stripe.webhook-raw.v1",
-            containerFactory = "auditContainerFactory"
-    )
     @Transactional
-    public void consume(String payload, Acknowledgment acknowledgment) {
+    public void consume(String payload) {
         try {
             JsonNode root       = objectMapper.readTree(payload);
             String eventId      = root.path("id").asText();
@@ -88,7 +68,6 @@ public class AuditConsumer {
                         new ProcessedStripeEvent(eventId + "-audit", eventType));
             } catch (DataIntegrityViolationException e) {
                 log.debug("Audit: duplicate event {} — skipping", eventId);
-                acknowledgment.acknowledge();
                 return;
             }
 
@@ -108,7 +87,6 @@ public class AuditConsumer {
 
             auditLogRepository.save(entry);
             log.debug("Audit: recorded {} for event {}", internalEventType, eventId);
-            acknowledgment.acknowledge();
 
         } catch (Exception e) {
             log.error("Audit consumer failed to process message", e);

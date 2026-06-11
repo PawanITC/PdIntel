@@ -1,3 +1,4 @@
-spring:
-  kafka:
-    bootstrap-servers: localhost:9092
+kinesis:
+  endpoint: http://localhost:4566
+  region: eu-west-2
+  stream-name: pd-payment-kinesis-euw2

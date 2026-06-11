@@ -2,7 +2,7 @@
 Feature: Access control consumer — subscription status updates
 
   As the Plany payment service
-  I want the access control Kafka consumer to update subscription status
+  I want the access control Kinesis consumer to update subscription status
   So that users gain or lose access to Plany services based on payment events
 
   Background:

@@ -5,20 +5,14 @@ package uk.co.pdintel.payment.bdd;
  *
  * <p>Decisions:
  * <ul>
- *   <li>Publishes directly to Kafka via KafkaTemplate — bypasses the relay for focused
- *       consumer testing. Same message format the relay would produce.</li>
- *   <li>councilId as Kafka partition key — matches relay behaviour, ensures consumer
- *       receives messages in council order.</li>
- *   <li>Awaitility for async assertions — consumer processes messages asynchronously.
- *       Polls DB until condition met or 10s timeout rather than Thread.sleep().</li>
- *   <li>Asserts via UserRepository — source of truth. Proves consumer updated the DB,
- *       not just that it received the message.</li>
- *   <li>lastPublishedPayload stored — "same message published again" step re-uses
- *       the exact payload for idempotency testing.</li>
- *   <li>customer.subscription.updated carries status in data.object.status —
- *       consumer reads this field to determine the new subscription status.</li>
- *   <li>@Before("@access-control") ensures test user exists with clean state
- *       before each scenario.</li>
+ *   <li>Publishes directly via KinesisTestHelper — calls KinesisConsumerService.dispatchRecord()
+ *       synchronously. No live stream or LocalStack required.</li>
+ *   <li>councilId as partition key — matches relay behaviour.</li>
+ *   <li>Awaitility removed — dispatch is synchronous so DB is updated before the step returns.
+ *       Assertions can check state immediately, but Awaitility kept for safety margin.</li>
+ *   <li>Asserts via UserRepository — source of truth.</li>
+ *   <li>lastPublishedPayload stored — "same message published again" re-uses exact payload.</li>
+ *   <li>@Before("@access-control") ensures test user exists with clean state.</li>
  * </ul>
  *
  * @author Pawan
@@ -33,24 +27,21 @@ import io.cucumber.java.en.When;
 import org.awaitility.Awaitility;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.kafka.core.KafkaTemplate;
 import uk.co.pdintel.payment.domain.User;
 import uk.co.pdintel.payment.repository.UserRepository;
 
 import java.time.Duration;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class AccessControlSteps {
 
-    private static final String TOPIC          = "plany.stripe.webhook-raw.v1";
     private static final String TEST_USER_EMAIL = "consumer-test@plany.co.uk";
     private static final String EVENT_ID        = "evt_access_control_001";
 
     @Autowired
-    private KafkaTemplate<String, String> kafkaTemplate;
+    private KinesisTestHelper kinesisTestHelper;
 
     @Autowired
     private UserRepository userRepository;
@@ -87,24 +78,24 @@ public class AccessControlSteps {
     }
 
     @When("a Kafka message is published to {string} with event type {string} for user {string}")
-    public void aKafkaMessageIsPublished(String topic, String eventType, String email) {
+    public void aKinesisRecordIsPublished(String ignored, String eventType, String email) {
         String councilId = mockCouncilIds.split(",")[0].trim();
         lastPublishedPayload = buildPayload(EVENT_ID, eventType, email, councilId, null);
-        kafkaTemplate.send(topic, councilId, lastPublishedPayload);
+        kinesisTestHelper.publish(councilId, lastPublishedPayload);
     }
 
     @When("a Kafka message is published to {string} with event type {string} with status {string} for user {string}")
-    public void aKafkaMessageIsPublishedWithStatus(String topic, String eventType,
-                                                    String status, String email) {
+    public void aKinesisRecordIsPublishedWithStatus(String ignored, String eventType,
+                                                     String status, String email) {
         String councilId = mockCouncilIds.split(",")[0].trim();
         lastPublishedPayload = buildPayload(EVENT_ID, eventType, email, councilId, status);
-        kafkaTemplate.send(topic, councilId, lastPublishedPayload);
+        kinesisTestHelper.publish(councilId, lastPublishedPayload);
     }
 
     @And("the same Kafka message is published again")
-    public void theSameKafkaMessageIsPublishedAgain() {
+    public void theSameKinesisRecordIsPublishedAgain() {
         String councilId = mockCouncilIds.split(",")[0].trim();
-        kafkaTemplate.send(TOPIC, councilId, lastPublishedPayload);
+        kinesisTestHelper.publish(councilId, lastPublishedPayload);
     }
 
     @Then("the subscription status for user {string} should be {string}")

@@ -7,9 +7,6 @@ spring:
     show-sql: false
   flyway:
     baseline-on-migrate: true
-  kafka:
-    bootstrap-servers: ${spring.embedded.kafka.brokers:localhost:9092}
-
 management:
   tracing:
     sampling:

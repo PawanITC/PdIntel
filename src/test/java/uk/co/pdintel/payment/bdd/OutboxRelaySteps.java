@@ -11,13 +11,11 @@ package uk.co.pdintel.payment.bdd;
  *       stripe_event_outbox.stripe_event_id requires the parent row to exist first.</li>
  *   <li>OutboxRelayService.runRelay() called directly — avoids @Scheduled timing
  *       non-determinism in tests. Relay logic is tested, not the scheduler.</li>
- *   <li>KafkaTestHelper with 5s timeout — generous but bounded; gives Kafka time
- *       to deliver in slow CI environments without blocking indefinitely.</li>
- *   <li>DB status asserted after relay — proves relay updated the row status,
- *       not just that Kafka received the message.</li>
+ *   <li>KinesisTestHelper tracks published records in-memory — no live Kinesis
+ *       stream or LocalStack required. Relay calls KinesisAsyncClient mock.</li>
+ *   <li>DB status asserted after relay — proves relay updated the row status.</li>
  *   <li>Max retry threshold = 3 — retry count 1 is below (retried), 5 is above (skipped).</li>
- *   <li>@Before cleans outbox + processed_events tables — clean slate per scenario,
- *       no row leakage between relay scenarios.</li>
+ *   <li>@Before cleans outbox + processed_events tables — clean slate per scenario.</li>
  * </ul>
  *
  * @author Pawan
@@ -36,15 +34,13 @@ import uk.co.pdintel.payment.repository.ProcessedStripeEventRepository;
 import uk.co.pdintel.payment.repository.StripeEventOutboxRepository;
 import uk.co.pdintel.payment.service.OutboxRelayService;
 
-import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class OutboxRelaySteps {
 
-    private static final String TOPIC = "plany.stripe.webhook-raw.v1";
-    private static final Duration KAFKA_TIMEOUT = Duration.ofSeconds(5);
+    private static final String STREAM = "pd-payment-kinesis-euw2";
 
     @Autowired
     private StripeEventOutboxRepository stripeEventOutboxRepository;
@@ -56,7 +52,7 @@ public class OutboxRelaySteps {
     private OutboxRelayService outboxRelayService;
 
     @Autowired
-    private KafkaTestHelper kafkaTestHelper;
+    private KinesisTestHelper kinesisTestHelper;
 
     private String lastPublishedKey;
     private String lastPublishedValue;
@@ -91,16 +87,16 @@ public class OutboxRelaySteps {
     }
 
     @Then("a Kafka message is published to topic {string}")
-    public void aKafkaMessageIsPublishedToTopic(String topic) {
-        List<org.apache.kafka.clients.consumer.ConsumerRecord<String, String>> records =
-                kafkaTestHelper.consumeMessages(topic, 1, KAFKA_TIMEOUT);
+    public void aKinesisRecordIsPublishedToStream(String ignored) {
+        List<uk.co.pdintel.payment.config.KinesisMockConfig.CapturedRecord> records =
+                kinesisTestHelper.getPublishedRecords();
         assertThat(records).isNotEmpty();
-        lastPublishedKey = records.get(0).key();
-        lastPublishedValue = records.get(0).value();
+        lastPublishedKey = records.get(records.size() - 1).partitionKey();
+        lastPublishedValue = records.get(records.size() - 1).payload();
     }
 
     @And("the Kafka message partition key is {string}")
-    public void theKafkaMessagePartitionKeyIs(String expectedKey) {
+    public void theKinesisRecordPartitionKeyIs(String expectedKey) {
         assertThat(lastPublishedKey).isEqualTo(expectedKey);
     }
 
@@ -113,16 +109,15 @@ public class OutboxRelaySteps {
     }
 
     @Then("no Kafka message is published for event {string}")
-    public void noKafkaMessageIsPublishedForEvent(String eventId) {
-        boolean found = kafkaTestHelper.hasMessageWithValueContaining(
-                TOPIC, eventId, Duration.ofSeconds(2));
+    public void noKinesisRecordIsPublishedForEvent(String eventId) {
+        boolean found = kinesisTestHelper.hasRecordWithPayloadContaining(eventId);
         assertThat(found)
-                .as("Expected no Kafka message for event %s but one was found", eventId)
+                .as("Expected no Kinesis record for event %s but one was found", eventId)
                 .isFalse();
     }
 
     @And("the Kafka message payload contains {string}")
-    public void theKafkaMessagePayloadContains(String expectedContent) {
+    public void theKinesisRecordPayloadContains(String expectedContent) {
         assertThat(lastPublishedValue).contains(expectedContent);
     }
 

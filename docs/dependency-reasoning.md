@@ -11,13 +11,14 @@
 | `spring-boot-starter-validation` | `@Valid` on request bodies |
 | `flyway-core` + `flyway-database-postgresql` | Spring Boot 3.x + Flyway 10.x requires both separate artifacts |
 | `postgresql` | JDBC driver — runtime scope only (never compile-time) |
-| `spring-kafka` | Kafka producer/consumer |
+| `software.amazon.awssdk:kinesis` | AWS Kinesis producer (PutRecord) and consumer (GetRecords) |
+| `software.amazon.awssdk:sts` | Required by DefaultCredentialsProvider for IRSA credential chain |
 | `stripe-java:26.7.0` | Official Stripe SDK — latest stable on Maven Central |
 | `springdoc-openapi-starter-webmvc-ui` | OpenAPI 3.x + Swagger UI auto-generated from annotations |
 | `micrometer-registry-prometheus` | Prometheus scrape endpoint at `/actuator/prometheus` |
 | `micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp` | Distributed tracing — bridges Micrometer Observation API to OpenTelemetry |
 | `cucumber-java` + `cucumber-spring` + `cucumber-junit-platform-engine` | BDD step definitions wired to Spring context, run via JUnit 5 |
-| `spring-kafka-test` | Embedded Kafka broker for local/unit test profile — no Docker required |
+| `testcontainers:localstack` | LocalStack container for local Kinesis emulation in integration tests |
 | `spring-boot-testcontainers` + `testcontainers:postgresql` | Real Postgres in integration tests via `@ServiceConnection` — no mocks |
 | `wiremock` | Mock Stripe HTTP API in unit/integration tests |
 
@@ -48,7 +49,7 @@ The bridge between plain-English Gherkin sentences in `.feature` files and real 
 | `@SpringBootTest(webEnvironment = RANDOM_PORT)` | Starts a real Spring Boot server on a random free port |
 | `@ActiveProfiles("test")` | Activates `application-test.yml` overrides |
 | `@Testcontainers` + `@Container` + `@ServiceConnection` | Spins real Postgres container, auto-overrides datasource config |
-| `@EmbeddedKafka` | Starts embedded Kafka broker, sets `spring.embedded.kafka.brokers` |
+| `@Import(KinesisMockConfig.class)` | Replaces real KinesisAsyncClient with in-memory stub; captures PutRecord calls for BDD assertions |
 | `TestRestTemplate` | Makes real HTTP calls against the running test server — pre-configured to use the random port |
 | `{int}` / `{string}` in step annotations | Cucumber type expressions — extract values from feature file sentences and pass as method parameters |
 
@@ -83,18 +84,19 @@ Without `CucumberRunner.java`, `mvn test` finds no Cucumber tests to run.
 **Why not PostgreSQL `money`:** Locale-dependent, poor portability, Postgres docs advise against it.
 **VAT caveat:** VAT intermediate calculations (e.g. 20% of £7 = £1.40) may produce fractions. Rule: do `BIGINT` arithmetic in pence, round **once** at the final step using `BigDecimal.setScale(0, RoundingMode.HALF_UP)`.
 
-## Kafka — KRaft mode, no Zookeeper
+## Kinesis — AWS SDK v2, LocalStack for local dev
 
-**Image:** `apache/kafka:3.9.0` — official Apache image, KRaft default, no Zookeeper required.
+**Stream:** `pd-payment-kinesis-euw2` (eu-west-2, single shard for non-prod)
 
 | Decision | Why |
 |---|---|
-| KRaft over Zookeeper | Zookeeper removed in Kafka 4.0; KRaft is the only mode going forward |
-| `apache/kafka` over `confluentinc/cp-kafka` | Lighter image, no Confluent extras needed (no Schema Registry in scope) |
-| Single container in docker-compose | Zookeeper container eliminated — faster startup (~5s vs ~30s), less local dev complexity |
-| Fixed `CLUSTER_ID` in docker-compose | Stable cluster ID across restarts — avoids "unknown cluster" errors on container recreate |
-| `@EmbeddedKafka` in tests | Spring Kafka 3.x already runs KRaft internally — test setup needs no changes |
-| AWS MSK in production | MSK Serverless is KRaft-only — local dev aligns with prod |
+| AWS SDK v2 (`KinesisAsyncClient`) | Non-blocking I/O; `putRecord().join()` gives synchronous confirmation when needed |
+| `DefaultCredentialsProvider` | Picks up IRSA pod credentials automatically in EKS; falls back to env vars / `~/.aws/credentials` locally |
+| `KINESIS_ENDPOINT` env var override | When set, used as endpoint override — points to LocalStack in local/docker dev, empty for real AWS |
+| LocalStack in docker-compose (replaces Kafka) | Emulates Kinesis locally without a real AWS account; stream auto-created on container start |
+| Single-shard consumer in `KinesisConsumerService` | Sufficient for current volume; can be split to per-shard threads when shards > 1 |
+| Partition key = `councilId` | Preserves per-council ordering on the shard (same guarantee Kafka gave via partition key) |
+| `KinesisMockConfig` in tests | Pure in-memory stub for `KinesisAsyncClient` — no LocalStack or Docker required during `mvn test` |
 
 ## Configuration Decision — YAML over .properties, no Ansible
 
@@ -109,10 +111,10 @@ Without `CucumberRunner.java`, `mvn test` finds no Cucumber tests to run.
 | File | Purpose |
 |---|---|
 | `application.yml` | Shared defaults across all environments |
-| `application-dev.yml` | Local dev overrides (embedded Kafka, local Postgres) |
+| `application-dev.yml` | Local dev overrides (local Postgres defaults) |
 | `application-staging.yml` | Staging overrides |
 | `application-prod.yml` | Prod — mostly empty, secrets supplied by AWS Secrets Manager via env vars |
-| `application-test.yml` | Test profile (embedded Kafka, Testcontainers Postgres) |
+| `application-test.yml` | Test profile (mock Kinesis client, Testcontainers Postgres) |
 
 Active profile set via: `SPRING_PROFILES_ACTIVE=prod`
 

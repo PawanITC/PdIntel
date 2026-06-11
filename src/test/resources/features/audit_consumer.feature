@@ -1,5 +1,5 @@
 @audit
-Feature: Audit consumer — Kafka events to audit log
+Feature: Audit consumer — Kinesis events to audit log
 
   As the Plany payment service
   I want every Stripe webhook event to be recorded in the audit log

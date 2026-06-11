@@ -9,12 +9,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.context.annotation.Import;
-import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import uk.co.pdintel.payment.config.KinesisMockConfig;
 import uk.co.pdintel.payment.wiremock.WireMockConfig;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -23,8 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 @Testcontainers
-@EmbeddedKafka(partitions = 1, topics = {"plany.stripe.webhook-raw.v1"})
-@Import(WireMockConfig.class)
+@Import({WireMockConfig.class, KinesisMockConfig.class})
 public class HealthSteps {
 
     @Container
