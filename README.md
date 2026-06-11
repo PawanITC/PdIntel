@@ -10,12 +10,12 @@ Stripe payment integration service for [Plany.co.uk](https://plany.co.uk) — su
 | Build | Maven |
 | Database | PostgreSQL 16 (AWS RDS Multi-AZ in prod) |
 | Migrations | Flyway 10.x |
-| Messaging | Apache Kafka 3.9 KRaft (AWS MSK in prod) |
+| Messaging | AWS Kinesis (stream: pd-payment-kinesis-euw2, region: eu-west-2) |
 | Payments | Stripe (Billing, Tax, Radar, Billing Portal) |
 | Auth | Mock JWT (Phase 1) → AWS Cognito RS256 (later phase) |
 | API Docs | springdoc-openapi 2.x (OpenAPI 3.x + Swagger UI) |
 | Observability | Spring Boot Actuator, Micrometer, Prometheus, OpenTelemetry |
-| Testing | Cucumber BDD, JUnit 5, Testcontainers, WireMock, EmbeddedKafka |
+| Testing | Cucumber BDD, JUnit 5, Testcontainers, WireMock, LocalStack (Kinesis) |
 
 ---
 
@@ -47,7 +47,7 @@ STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret_here
 
 ---
 
-### 2. Start infrastructure (Postgres + Kafka)
+### 2. Start infrastructure (Postgres + LocalStack Kinesis)
 
 ```bash
 docker-compose up -d
@@ -55,7 +55,7 @@ docker-compose up -d
 
 This starts:
 - **PostgreSQL 16** on `localhost:5432` (database: `plany_dev`, user/pass: `plany/plany`)
-- **Apache Kafka 3.9 (KRaft)** on `localhost:29092`
+- **LocalStack** on `localhost:4566` — emulates AWS Kinesis locally (stream `pd-payment-kinesis-euw2` auto-created)
 
 Flyway migrations run automatically on app startup.
 
@@ -93,7 +93,7 @@ The app starts on `http://localhost:8080`.
 docker-compose --profile app up
 ```
 
-This builds the app image and starts Postgres + Kafka + app together.
+This builds the app image and starts Postgres + LocalStack + app together.
 
 ---
 
@@ -132,10 +132,11 @@ target/cucumber-reports/cucumber.html
 
 | Profile | Purpose | How to activate |
 |---|---|---|
-| `dev` | Local development — defaults to `localhost` Postgres + Kafka | `SPRING_PROFILES_ACTIVE=dev` |
+| `dev` | Local development — defaults to RDS via env vars, Kinesis via env vars | `SPRING_PROFILES_ACTIVE=dev` |
+| `local` | Local dev with LocalStack — Kinesis endpoint set to `http://localhost:4566` | `SPRING_PROFILES_ACTIVE=dev,local` |
 | `staging` | Staging — all config via env vars, no defaults | `SPRING_PROFILES_ACTIVE=staging` |
 | `prod` | Production — minimal config, 10% trace sampling, WARN logs | `SPRING_PROFILES_ACTIVE=prod` |
-| `test` | Test runs — EmbeddedKafka + Testcontainers Postgres | Auto-activated by `@ActiveProfiles("test")` |
+| `test` | Test runs — mock KinesisAsyncClient + Testcontainers Postgres | Auto-activated by `@ActiveProfiles("test")` |
 
 ---
 
@@ -157,11 +158,15 @@ To create a new migration, add a file named `V{n}__{description}.sql` — never 
 
 ---
 
-## Kafka Topics
+## Kinesis Stream
 
-| Topic | Purpose | Partition Key |
+| Stream | Purpose | Partition Key |
 |---|---|---|
-| `plany.stripe.webhook-raw.v1` | Raw Stripe webhook events from outbox relay | `councilId` |
+| `pd-payment-kinesis-euw2` | Raw Stripe webhook events from outbox relay | `councilId` |
+
+**Region:** `eu-west-2`  
+**Endpoint (prod):** `https://kinesis.eu-west-2.amazonaws.com`  
+**Endpoint (local):** `http://localhost:4566` (LocalStack)
 
 ---
 
@@ -204,8 +209,8 @@ src/
 
 - **Webhook handler returns HTTP 200 in <30ms** — never calls downstream services synchronously
 - **Card data never enters our servers** — Stripe Payment Element iframe handles all card input (PCI SAQ A)
-- **`councilId` is always the Kafka partition key** — guarantees ordering of events per council
-- **No PII in Kafka payloads** — only IDs and status values
+- **`councilId` is always the Kinesis partition key** — guarantees ordering of events per council on the shard
+- **No PII in Kinesis payloads** — only IDs and status values
 - **Money stored as `BIGINT` pence** — aligns with Stripe's API format, no floating point rounding
 - **Flyway owns the schema** — Hibernate is set to `validate` only, never `update` or `create-drop`
 - **All secrets via env vars** — no hardcoded keys in any committed file; prod secrets via AWS Secrets Manager
