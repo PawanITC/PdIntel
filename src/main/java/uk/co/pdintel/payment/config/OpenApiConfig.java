@@ -23,6 +23,7 @@ import io.swagger.v3.oas.models.info.Contact;
 import io.swagger.v3.oas.models.info.Info;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 
 @Configuration
 @SecurityScheme(
@@ -35,6 +36,30 @@ import org.springframework.context.annotation.Configuration;
 public class OpenApiConfig {
 
     @Bean
+    @Profile("dev")
+    public OpenAPI planyOpenAPIDev() {
+        return new OpenAPI()
+                .info(new Info()
+                        .title("Plany Payment Service API")
+                        .description("""
+                                Stripe payment integration for Plany.co.uk
+
+                                **Dev auth** — click Authorize and enter: `dev-static-token`
+
+                                **Dev council IDs:**
+                                - `123e4567-e89b-12d3-a456-426614174000`
+                                - `223e4567-e89b-12d3-a456-426614174001`
+
+                                **Stripe pricing table:** `prctbl_1ThMLMAfNo4hbb7vhJ5NUmcg`
+                                """)
+                        .version("v1")
+                        .contact(new Contact()
+                                .name("PdIntel")
+                                .url("https://plany.co.uk")));
+    }
+
+    @Bean
+    @Profile("!dev")
     public OpenAPI planyOpenAPI() {
         return new OpenAPI()
                 .info(new Info()

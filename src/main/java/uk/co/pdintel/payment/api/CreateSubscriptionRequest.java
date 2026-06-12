@@ -21,19 +21,24 @@ package uk.co.pdintel.payment.api;
  * @copyright 2026
  */
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 import java.util.UUID;
 
+@Schema(description = "Request to create a Stripe subscription")
 public record CreateSubscriptionRequest(
 
+        @Schema(example = "Basic", description = "Plan display name")
         @NotBlank(message = "planName is required")
         String planName,
 
+        @Schema(example = "price_1ThMDvAfNo4hbb7vmgZP76vk", description = "Stripe Price ID from the pricing table (£15/month GBP)")
         @NotBlank(message = "priceId is required")
         String priceId,
 
+        @Schema(example = "123e4567-e89b-12d3-a456-426614174000", description = "Council ID the user manages (dev: use either council from mock token)")
         @NotNull(message = "councilId is required")
         UUID councilId
 ) {
