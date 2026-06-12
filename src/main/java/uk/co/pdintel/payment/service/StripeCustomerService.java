@@ -49,6 +49,9 @@ public class StripeCustomerService {
             CustomerCreateParams params = CustomerCreateParams.builder()
                     .setEmail(user.getEmail())
                     .putMetadata("userId", user.getId().toString())
+                    .setAddress(CustomerCreateParams.Address.builder()
+                            .setCountry("GB")
+                            .build())
                     .build();
 
             Customer customer = Customer.create(params);
