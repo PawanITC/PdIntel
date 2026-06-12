@@ -2,7 +2,6 @@ package uk.co.pdintel.payment.bdd.cognito;
 
 import io.cucumber.spring.CucumberContextConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -28,7 +27,6 @@ import io.cucumber.java.en.Given;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("cognito-test")
 @Testcontainers
-@EmbeddedKafka(partitions = 1, topics = {"plany.stripe.webhook-raw.v1"})
 @Import(WireMockConfig.class)
 public class CognitoHealthSteps {
 

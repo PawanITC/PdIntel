@@ -1,0 +1,10 @@
+.git
+.mvn
+src
+docs
+target/classes
+target/generated-sources
+target/maven-*
+target/surefire-reports
+target/cucumber-reports
+*.md
